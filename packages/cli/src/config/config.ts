@@ -26,6 +26,9 @@ import { Settings } from './settings.js';
 import { Extension, annotateActiveExtensions } from './extension.js';
 import { getCliVersion } from '../utils/version.js';
 import { loadSandboxConfig } from './sandboxConfig.js';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 // Simple console logger for now - replace with actual logger if available
 const logger = {
@@ -62,6 +65,9 @@ export interface CliArgs {
   ideModeFeature: boolean | undefined;
   proxy: string | undefined;
   includeDirectories: string[] | undefined;
+  temperature: number | undefined;
+  agent: string | undefined;
+  persona: string | undefined;
 }
 
 export async function parseArguments(): Promise<CliArgs> {
@@ -81,6 +87,16 @@ export async function parseArguments(): Promise<CliArgs> {
       alias: 'p',
       type: 'string',
       description: 'Prompt. Appended to input on stdin (if any).',
+    })
+    .option('temperature', {
+      alias: 't',
+      type: 'number',
+      description: 'Temperature for the model.',
+    })
+    .option('agent', {
+      alias: 'ag',
+      type: 'string',
+      description: 'The agent to use.',
     })
     .option('prompt-interactive', {
       alias: 'i',
@@ -274,6 +290,30 @@ export async function loadCliConfig(
     (argv.ideModeFeature ?? settings.ideModeFeature ?? false) &&
     !process.env.SANDBOX;
 
+  if (argv.agent) {
+    const homeDir = os.homedir();
+    const globalAgentsFilePath = path.join(homeDir, '.gemini', 'agents.json');
+    const localAgentsFilePath = path.join(process.cwd(), '.gemini', 'agents.json');
+
+    let globalAgents = {};
+    if (fs.existsSync(globalAgentsFilePath)) {
+      globalAgents = JSON.parse(fs.readFileSync(globalAgentsFilePath, 'utf-8'));
+    }
+
+    let localAgents = {};
+    if (fs.existsSync(localAgentsFilePath)) {
+      localAgents = JSON.parse(fs.readFileSync(localAgentsFilePath, 'utf-8'));
+    }
+
+    const agents = { ...globalAgents, ...localAgents };
+    const agent = agents[argv.agent];
+
+    if (agent) {
+      argv.temperature = argv.temperature ?? agent.temperature;
+      argv.persona = agent.persona;
+    }
+  }
+
   const ideClient = IdeClient.getInstance(ideMode && ideModeFeature);
 
   const allExtensions = annotateActiveExtensions(
@@ -434,6 +474,8 @@ export async function loadCliConfig(
     ideMode,
     ideModeFeature,
     ideClient,
+    temperature: argv.temperature,
+    persona: argv.persona,
   });
 }
 
